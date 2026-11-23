@@ -1,0 +1,8 @@
+# ansible-core minor versions offered in the dropdown; the latest patch release
+# of each is downloaded from PyPI.
+versions = ["2.18", "2.19", "2.20", "2.21", "2.22"]
+# Version shown when the site opens.
+default = "2.22"
+descriptions = "descriptions.toml"
+output = "site"
+cache = ".cache"
