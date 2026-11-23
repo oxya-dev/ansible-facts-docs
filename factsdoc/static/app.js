@@ -9,7 +9,10 @@
     tbody: $('#facts tbody'), meta: $('#meta'), empty: $('#empty'),
   };
   let rows = [];
-  let expanded = new Set();
+  // Explicit user choice per node path: true = open, false = closed. Nodes without a
+  // choice are closed, except during a search where they open to reveal matches.
+  let opened = new Map();
+  let hit = new Set();
   let data = null;
 
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
@@ -125,10 +128,14 @@
     return true;
   }
 
+  function isOpen(row) {
+    return opened.has(row.path) ? opened.get(row.path) : row.kids.some((k) => hit.has(k));
+  }
+
   function refresh() {
     const q = ui.search.value.trim().toLowerCase();
     // Rows are in depth-first order: children follow their parent.
-    const hit = new Set();
+    hit = new Set();
     if (q) {
       for (let i = rows.length - 1; i >= 0; i--) {
         const row = rows[i];
@@ -139,9 +146,10 @@
     for (const row of rows) {
       if (!passesFilters(row.top)) continue;
       const p = row.parent;
-      const vis = p
-        ? show.has(p) && (expanded.has(p.path) || hit.has(row))
-        : (!q || hit.has(row));
+      let vis;
+      if (!p) vis = !q || hit.has(row);
+      // Opened by hand: all children; opened by the search: only the matching branches.
+      else vis = show.has(p) && isOpen(p) && (!q || opened.get(p.path) === true || hit.has(row));
       if (vis) show.add(row);
     }
     let count = 0;
@@ -150,9 +158,9 @@
       row.el.hidden = !vis;
       if (vis && row.depth === 0) count++;
       if (row.btn) {
-        const isOpen = expanded.has(row.path) || row.kids.some((k) => hit.has(k));
-        row.btn.textContent = isOpen ? '▾' : '▸';
-        row.btn.setAttribute('aria-expanded', String(isOpen));
+        const open = isOpen(row);
+        row.btn.textContent = open ? '▾' : '▸';
+        row.btn.setAttribute('aria-expanded', String(open));
       }
     }
     ui.empty.hidden = show.size > 0;
@@ -213,19 +221,30 @@
     const minor = INDEX.versions.some((v) => v.minor === h.v) ? h.v : INDEX.default;
     ui.version.addEventListener('change', () => show(ui.version.value));
     let t = null;
-    ui.search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(refresh, 120); });
+    ui.search.addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        // A new search must be able to reveal its matches: forget hand-closed nodes.
+        for (const [k, v] of opened) if (!v) opened.delete(k);
+        refresh();
+      }, 120);
+    });
     ui.subset.addEventListener('change', refresh);
     ui.platform.addEventListener('change', refresh);
     $('#expand').addEventListener('click', () => {
-      rows.forEach((r) => r.kids.length && expanded.add(r.path));
+      rows.forEach((r) => r.kids.length && opened.set(r.path, true));
       refresh();
     });
-    $('#collapse').addEventListener('click', () => { expanded = new Set(); refresh(); });
+    $('#collapse').addEventListener('click', () => {
+      opened = new Map();
+      rows.forEach((r) => r.kids.length && opened.set(r.path, false));
+      refresh();
+    });
     ui.tbody.addEventListener('click', (ev) => {
       const btn = ev.target.closest('.tog');
       if (!btn) return;
       const row = rows[btn.closest('tr').dataset.i];
-      if (expanded.has(row.path)) expanded.delete(row.path); else expanded.add(row.path);
+      opened.set(row.path, !isOpen(row));
       refresh();
     });
     window.addEventListener('hashchange', () => {
