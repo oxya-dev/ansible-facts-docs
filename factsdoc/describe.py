@@ -43,10 +43,12 @@ def norm_path(p):
 
 
 def load_overrides(path: Path):
+    """``{'facts': {path: entry}, 'windows': {path: entry}}`` from descriptions.toml."""
     data = tomllib.loads(path.read_text(encoding='utf-8'))
     out = {}
-    for key, val in data.get('facts', {}).items():
-        out[norm_path(key)] = {'description': val} if isinstance(val, str) else dict(val)
+    for table in ('facts', 'windows'):
+        out[table] = {norm_path(k): ({'description': v} if isinstance(v, str) else dict(v))
+                      for k, v in data.get(table, {}).items()}
     return out
 
 
@@ -119,8 +121,8 @@ def humanize(name):
     return text + '.'
 
 
-def _site_comment(index, site):
-    mod = index.by_rel.get(site.file)
+def _site_comment(sources, site):
+    mod = sources.get(site.file)
     if mod is None or not site.line:
         return None
     com = mod.comments()
@@ -141,66 +143,94 @@ def _site_comment(index, site):
     return None
 
 
-def _note(index, sites):
+def _note(sources, sites):
     for s in sorted(sites):
-        text = _site_comment(index, s)
+        text = _site_comment(sources, s)
         if text:
             return text
     return None
 
 
+WINDOWS = 'Windows'
+
+
 def _platforms(platforms):
-    return ['any'] if 'Generic' in platforms else sorted(platforms)
+    """Platform labels: ``posix`` for collectors that run on every POSIX system, then specific ones."""
+    posix = platforms - {WINDOWS}
+    out = ['posix'] if 'Generic' in posix else sorted(posix)
+    if WINDOWS in platforms:
+        out.append(WINDOWS)
+    return out
 
 
-def _record(node, segments, index, overrides, stats, top=False):
+def _record(node, segments, ctx, parent_p=None):
     segments = segments + [node.name]
-    path = path_str(segments)
-    ov = overrides.get(norm_path(path))
+    path = norm_path(path_str(segments))
+    posix = bool(node.platforms - {WINDOWS})
+    windows = WINDOWS in node.platforms
+    ov = ctx['facts'].get(path) if posix else None
+    wov = ctx['windows'].get(path) if windows else None
+    if not posix and wov is None:
+        wov = ctx['facts'].get(path)  # same meaning on Windows
+    main = ov if posix else wov
     types = norm_types(node.types)
-    if ov and ov.get('type'):
-        types = [ov['type']]
+    # A curated type replaces the inferred one for its platform family; keep the
+    # inferred types when the other family present has no curated type.
+    typed = {o['type'] for o in (ov, wov) if o and o.get('type')}
+    if typed:
+        uncovered = (posix and not (ov and ov.get('type'))) or (windows and not (wov and wov.get('type')))
+        types = norm_types(typed | (set(types) - {'any'} if uncovered else set()))
     rec = {'n': node.name, 'k': node.kind, 't': types}
-    if ov and ov.get('description'):
-        rec['d'] = ov['description']
-        stats['curated'] += 1
+    if main and main.get('description'):
+        rec['d'] = main['description']
+        ctx['stats']['curated'] += 1
     else:
         rec['d'] = humanize(node.name)
         rec['g'] = 1
-    stats['total'] += 1
-    note = _note(index, node.sites)
+    if posix and windows and wov and wov.get('description'):
+        rec['dw'] = wov['description']
+    ctx['stats']['total'] += 1
+    note = _note(ctx['sources'], node.sites)
     if note:
         rec['note'] = note
     if node.src:
         rec['src'] = sorted(node.src)[:8]
     if node.sites:
         rec['at'] = [[s.file, s.line, s.func] for s in sorted(node.sites)[:12]]
-    if top:
+    plats = _platforms(node.platforms)
+    if parent_p is None:
         rec['v'] = node.name if node.name.startswith(('facter_', 'ohai_')) else 'ansible_' + node.name
-        rec['p'] = _platforms(node.platforms)
+        rec['p'] = plats
         rec['s'] = sorted(node.subsets)
-    kids = [_record(c, segments, index, overrides, stats) for _, c in sorted(node.children.items())]
+    elif plats != parent_p:
+        rec['p'] = plats
+    kids = [_record(c, segments, ctx, plats) for _, c in sorted(node.children.items())]
     if kids:
         rec['c'] = kids
     return rec
 
 
-def build_version(result, version, overrides):
-    """JSON-ready documentation for one ansible-core version."""
-    stats = {'total': 0, 'curated': 0}
+def build_version(result, version, overrides, windows=None):
+    """JSON-ready documentation for one ansible-core version (plus the Windows facts, if given)."""
+    ctx = {**overrides, 'sources': result['sources'], 'stats': {'total': 0, 'curated': 0}}
     root = result['root']
-    facts = [_record(c, [], result['index'], overrides, stats, top=True) for _, c in sorted(root.children.items())]
+    facts = [_record(c, [], ctx) for _, c in sorted(root.children.items())]
     collectors = [
         {'name': c['name'], 'platform': c['platform'], 'class': c['class'], 'file': c['file'], 'line': c['line']}
         for c in result['collectors'] if c['name']
     ]
     errors = [f'{c["class"]}: {c["error"]}' for c in result['collectors'] if c['error']]
-    return {
+    st = ctx['stats']
+    doc = {
         'version': version,
         'minor': '.'.join(version.split('.')[:2]),
         'minimal_subset': result['minimal_subset'],
         'collectors': collectors,
-        'stats': {'top': len(facts), 'total': stats['total'], 'curated': stats['curated']},
+        'stats': {'top': len(facts), 'total': st['total'], 'curated': st['curated'],
+                  'windows': sum(1 for f in facts if WINDOWS in f['p'])},
         'errors': errors,
         'facts': facts,
     }
+    if windows:
+        doc['windows'] = windows
+    return doc

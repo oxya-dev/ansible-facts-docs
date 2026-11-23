@@ -24,7 +24,9 @@ jobs:
           python-version: '3.13'
       - uses: actions/cache@v4
         with:
-          path: .cache/sdist
+          path: |
+            .cache/sdist
+            .cache/windows/*.tar.gz
           key: sdists-${{ github.run_id }}
           restore-keys: sdists-
       - run: python -m factsdoc

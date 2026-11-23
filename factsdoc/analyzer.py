@@ -2296,6 +2296,7 @@ def analyze(lib: Path):
                 root.children[c.name] = c
     return {
         'index': index,
+        'sources': dict(index.by_rel),
         'collectors': collectors,
         'root': root,
         'minimal_subset': minimal_gather_subset(index),

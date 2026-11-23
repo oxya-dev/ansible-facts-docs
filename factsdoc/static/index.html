@@ -49,9 +49,10 @@
     <section class="intro">
       <p class="eyebrow">ansible-core <span id="ver"></span></p>
       <h1>Ansible facts</h1>
-      <p class="lead">Every fact the <code>setup</code> module can return, with its type, meaning, the
-        <code>gather_subset</code> and platforms that collect it, and where its value comes from.
-        Extracted from the fact collectors' source code.</p>
+      <p class="lead">Every fact the <code>setup</code> module can return on Linux, Unix and Windows hosts, with its type,
+        meaning, the <code>gather_subset</code> and platforms that collect it, and where its value comes from.
+        Extracted from the source code of the ansible-core fact collectors and of the <code>ansible.windows</code>
+        setup module.</p>
       <dl class="stats" id="stats"></dl>
       <details class="howto">
         <summary>How to read this reference</summary>
@@ -62,7 +63,11 @@
             <code>[]</code> stands for the elements of a list.</li>
           <li>A type such as <code>str | null</code> lists every type the code can assign, on any platform.</li>
           <li><span class="tag-auto">auto</span> marks descriptions derived from the fact name rather than written by hand.</li>
-          <li>Source shows the files, commands and Python APIs a value is read from, and links to the lines that set it.</li>
+          <li>Source shows where a value is read from (files, commands, Python APIs, registry keys, WMI classes, .NET APIs)
+            and links to the lines that set it.</li>
+          <li>Windows hosts run <code>ansible.windows.setup</code>, a separate PowerShell module, using the latest
+            <code>ansible.windows</code> release that supports this ansible-core version. Where a fact means something
+            different on Windows, a <span class="chip plat win">Windows</span> note follows the description.</li>
           <li><span class="chip subset min">min</span> marks facts gathered even with <code>gather_subset: [min]</code>.</li>
         </ul>
       </details>
@@ -80,6 +85,7 @@
 
     <footer class="footer">
       Generated from <a href="https://github.com/ansible/ansible/tree/devel/lib/ansible/module_utils/facts">lib/ansible/module_utils/facts</a>
+      and <a href="https://github.com/ansible-collections/ansible.windows/blob/main/plugins/modules/setup.ps1">ansible.windows setup.ps1</a>
       by static analysis · <a href="https://github.com/oxya-dev/ansible-facts-docs">oxya-dev/ansible-facts-docs</a>
     </footer>
   </main>

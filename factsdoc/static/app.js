@@ -3,12 +3,15 @@
 
   const INDEX = window.FACTS_INDEX;
   const REPO = 'https://github.com/ansible/ansible/blob/v';
+  const WIN_REPO = 'https://github.com/ansible-collections/ansible.windows/blob/';
+  const WIN_PREFIX = 'ansible.windows/';
   // Presentation groups, by the gather_subset (collector) that produces a fact.
   const CATEGORIES = [
     ['System', ['platform', 'distribution', 'lsb', 'pkg_mgr', 'service_mgr', 'python', 'date_time', 'env',
-                'user', 'cmdline', 'systemd', 'loadavg']],
-    ['Hardware', ['hardware']],
-    ['Network', ['network', 'dns', 'fibre_channel_wwn', 'iscsi', 'nvme']],
+                'user', 'cmdline', 'systemd', 'loadavg', 'powershell_version']],
+    ['Hardware', ['hardware', 'bios', 'memory', 'processor', 'uptime']],
+    ['Network', ['network', 'dns', 'fibre_channel_wwn', 'iscsi', 'nvme', 'interfaces', 'all_ipv4_addresses',
+                 'all_ipv6_addresses', 'windows_domain', 'winrm']],
     ['Virtualization', ['virtual']],
     ['Security', ['selinux', 'apparmor', 'caps', 'fips', 'chroot', 'ssh_pub_keys']],
     ['Custom and third-party facts', ['local', 'facter', 'ohai']],
@@ -52,7 +55,7 @@
   function flatten(recs, depth, parent, top, out) {
     for (const rec of recs) {
       const path = !parent ? rec.n : (rec.n === '[]' ? parent.path + '[]' : parent.path + '.' + rec.n);
-      const row = { rec, depth, parent, top: null, path, kids: [] };
+      const row = { rec, depth, parent, top: null, path, kids: [], plats: rec.p || (parent ? parent.plats : []) };
       row.top = top || row;
       row.text = (path + ' ' + (rec.v || '') + ' ' + rec.d + ' ' + (rec.note || '') + ' ' +
                   (rec.src || []).join(' ')).toLowerCase();
@@ -85,10 +88,32 @@
     return items.length ? '<ul class="origins">' + items.join('') + '</ul>' : '';
   }
 
+  function codeUrl(file, line) {
+    if (file.startsWith(WIN_PREFIX)) {
+      return WIN_REPO + esc(data.windows.version) + '/' + esc(file.slice(WIN_PREFIX.length)) + '#L' + line;
+    }
+    return REPO + esc(data.version) + '/lib/' + esc(file) + '#L' + line;
+  }
+
+  function minimalSubsets() {
+    return new Set([...data.minimal_subset, ...(data.windows ? data.windows.minimal_subset : [])]);
+  }
+
+  function platChips(p) {
+    return p.map((x) => x === 'posix'
+      ? '<span class="chip plat any" title="Every POSIX system: Linux, BSD, macOS, Solaris, AIX…">All POSIX</span>'
+      : '<span class="chip plat' + (x === 'Windows' ? ' win' : '') + '">' + esc(x) + '</span>').join('');
+  }
+
+  function descHtml(r) {
+    return '<p class="desc">' + inline(r.d) + '</p>' +
+      (r.dw ? '<p class="desc desc-win"><span class="chip plat win">Windows</span> ' + inline(r.dw) + '</p>' : '');
+  }
+
   function linksHtml(rec, limit) {
     const at = rec.at || [];
     const shown = at.slice(0, limit).map(([file, line, func]) =>
-      '<a class="codelink" href="' + REPO + esc(data.version) + '/lib/' + esc(file) + '#L' + line +
+      '<a class="codelink" href="' + codeUrl(file, line) +
       '" target="_blank" rel="noopener" title="' + esc(file + ' · ' + func) + '">' +
       esc(file.split('/').pop()) + ':' + line + '</a>');
     if (at.length > limit) {
@@ -100,12 +125,10 @@
 
   function factHtml(row) {
     const r = row.rec;
-    const minimal = new Set(data.minimal_subset);
+    const minimal = minimalSubsets();
     const subsets = r.s.map((s) => '<span class="chip subset' + (minimal.has(s) ? ' min' : '') + '"' +
       (minimal.has(s) ? ' title="Gathered even with gather_subset: [min]"' : '') + '>' + esc(s) + '</span>').join('');
-    const plats = r.p.includes('any')
-      ? '<span class="chip plat any">All platforms</span>'
-      : r.p.map((p) => '<span class="chip plat">' + esc(p) + '</span>').join('');
+    const plats = platChips(r.p);
     const nsrc = (r.src || []).length;
     const nat = (r.at || []).length;
     const source = nsrc || nat || r.note
@@ -122,7 +145,7 @@
     return '<header class="fact-head"><h3><a class="anchor" href="#" aria-label="Link to ' + esc(r.n) + '">#</a>' +
       '<code class="fact-name' + keyClass(r.n) + '">' + esc(r.n) + '</code></h3>' + typeHtml(r.t) +
       (r.g ? '<span class="tag-auto" title="Description derived from the fact name">auto</span>' : '') + '</header>' +
-      '<p class="desc">' + inline(r.d) + '</p>' +
+      descHtml(r) +
       '<dl class="meta">' +
       '<div><dt>Access</dt><dd><code>ansible_facts[\'' + esc(r.n) + '\']</code><code class="legacy">' + esc(r.v) + '</code></dd></div>' +
       '<div><dt>gather_subset</dt><dd>' + subsets + '</dd></div>' +
@@ -139,7 +162,8 @@
     const links = linksHtml(r, 3);
     return '<div class="prop-line">' + tog + '<code class="key' + keyClass(r.n) + '">' + esc(r.n) + '</code>' +
       typeHtml(r.t) + (r.g ? '<span class="tag-auto" title="Description derived from the fact name">auto</span>' : '') +
-      '</div><div class="prop-body"><p class="desc">' + inline(r.d) + '</p>' +
+      (r.p ? '<span class="prop-plats">' + platChips(r.p) + '</span>' : '') +
+      '</div><div class="prop-body">' + descHtml(r) +
       (src || links || r.note ? '<div class="prop-src">' + src + (links ? '<div class="codelinks">' + links + '</div>' : '') +
         (r.note ? '<span class="note-icon" tabindex="0" title="Comment in the code: ' + esc(r.note) + '">comment</span>' : '') +
         '</div>' : '') +
@@ -209,9 +233,12 @@
     ui.stats.innerHTML =
       '<div><dt>Top-level facts</dt><dd>' + s.top + '</dd></div>' +
       '<div><dt>Keys, nested included</dt><dd>' + s.total + '</dd></div>' +
-      '<div><dt>Collectors</dt><dd>' + data.collectors.length + '</dd></div>' +
-      '<div><dt>Source</dt><dd><a href="https://github.com/ansible/ansible/tree/v' + esc(data.version) +
-      '/lib/ansible/module_utils/facts" target="_blank" rel="noopener">v' + esc(data.version) + '</a></dd></div>';
+      '<div><dt>ansible-core source</dt><dd><a href="https://github.com/ansible/ansible/tree/v' + esc(data.version) +
+      '/lib/ansible/module_utils/facts" target="_blank" rel="noopener">v' + esc(data.version) + '</a></dd></div>' +
+      (data.windows
+        ? '<div><dt>ansible.windows source</dt><dd><a href="' + WIN_REPO + esc(data.windows.version) +
+          '/plugins/modules/setup.ps1" target="_blank" rel="noopener">' + esc(data.windows.version) + '</a></dd></div>'
+        : '<div><dt>Collectors</dt><dd>' + data.collectors.length + '</dd></div>');
     refresh();
     observeSections();
   }
@@ -220,12 +247,16 @@
 
   function passesFilters(rec) {
     const subset = ui.subset.value;
-    const plat = ui.platform.value;
     if (subset === 'min:') {
-      if (!rec.s.some((s) => data.minimal_subset.includes(s))) return false;
+      const minimal = minimalSubsets();
+      if (!rec.s.some((s) => minimal.has(s))) return false;
     } else if (subset && !rec.s.includes(subset)) return false;
-    if (plat && !rec.p.includes(plat) && !rec.p.includes('any')) return false;
-    return true;
+    return platOk(rec.p);
+  }
+
+  function platOk(p) {
+    const plat = ui.platform.value;
+    return !plat || p.includes(plat) || (p.includes('posix') && plat !== 'Windows');
   }
 
   function isOpen(row) {
@@ -247,7 +278,7 @@
       let vis;
       if (!p) vis = passesFilters(row.rec) && (!q || hit.has(row));
       // Opened by hand: every child; opened by the search: only the matching branches.
-      else vis = show.has(p) && isOpen(p) && (!q || opened.get(p.path) === true || hit.has(row));
+      else vis = show.has(p) && isOpen(p) && platOk(row.plats) && (!q || opened.get(p.path) === true || hit.has(row));
       if (vis) show.add(row);
     }
     let count = 0;
@@ -363,7 +394,7 @@
     const plats = new Set();
     for (const f of data.facts) {
       f.s.forEach((s) => subsets.add(s));
-      f.p.forEach((p) => p !== 'any' && plats.add(p));
+      f.p.forEach((p) => p !== 'posix' && plats.add(p));
     }
     fillSelect(ui.subset, [['min:', 'min (always gathered)'], ...[...subsets].sort().map((s) => [s, s])], 'All');
     fillSelect(ui.platform, [...plats].sort().map((p) => [p, p]), 'All');

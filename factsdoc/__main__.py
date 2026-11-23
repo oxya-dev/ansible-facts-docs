@@ -6,9 +6,10 @@ import sys
 import tomllib
 from pathlib import Path
 
+from . import windows
 from .analyzer import analyze
 from .describe import build_version, load_overrides
-from .fetch import ensure_source, latest_patches
+from .fetch import ensure_source, ensure_windows, latest_patches, windows_for, windows_releases
 from .site import write_site
 
 
@@ -18,7 +19,8 @@ def main(argv=None):
     ap.add_argument('--versions', help='comma-separated ansible-core minor versions, overrides the config')
     ap.add_argument('--default', help='version selected when the site opens, overrides the config')
     ap.add_argument('--out', help='output directory, overrides the config')
-    ap.add_argument('--offline', action='store_true', help='use only sdists already in the cache')
+    ap.add_argument('--offline', action='store_true', help='use only sources already in the cache')
+    ap.add_argument('--no-windows', action='store_true', help='skip the Windows facts (ansible.windows)')
     args = ap.parse_args(argv)
 
     cfg_path = Path(args.config).resolve()
@@ -33,12 +35,22 @@ def main(argv=None):
     overrides = load_overrides(base / cfg.get('descriptions', 'descriptions.toml'))
 
     patches = latest_patches(minors, cache, offline=args.offline)
+    win_releases = [] if args.no_windows else windows_releases(cache, offline=args.offline)
     docs = []
     for minor in minors:
         version = patches[minor]
-        doc = build_version(analyze(ensure_source(version, cache)), version, overrides)
+        result = analyze(ensure_source(version, cache))
+        win_meta = None
+        win_version = windows_for(version, win_releases) if win_releases else None
+        if win_version:
+            win = windows.analyze(ensure_windows(win_version, cache))
+            windows.merge(result, win)
+            win_meta = {'version': win_version, 'minimal_subset': win['minimal_subset'], 'groups': win['groups']}
+        doc = build_version(result, version, overrides, win_meta)
         st = doc['stats']
-        print(f'{version}: {st["top"]} top-level facts, {st["total"]} keys, {st["curated"]} curated descriptions')
+        print(f'{version}: {st["top"]} top-level facts ({st["windows"]} on Windows'
+              f'{", ansible.windows " + win_version if win_version else ""}), {st["total"]} keys, '
+              f'{st["curated"]} curated descriptions')
         for err in doc['errors']:
             print(f'  warning: {err}', file=sys.stderr)
         docs.append(doc)

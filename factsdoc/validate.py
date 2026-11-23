@@ -1,13 +1,16 @@
-"""Check the static analysis against a real ``setup`` run on this machine.
+"""Check the static analysis against real ``setup`` output.
 
-Runs ``ansible.modules.setup`` from the extracted source tree, then walks the
-returned facts and reports every key or type the generated documentation does
-not cover. Usage::
+POSIX: runs ``ansible.modules.setup`` from the extracted source tree on this machine.
+Windows: reads the output of ``ansible.windows.setup`` captured on a Windows host.
+Then walks the returned facts and reports every key or type the generated
+documentation does not cover. Usage::
 
     python -m factsdoc.validate <extracted>/lib
+    python -m factsdoc.validate --windows .cache/windows/<version>/setup.ps1 --facts facts.json
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -15,6 +18,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from . import windows
 from .analyzer import analyze
 
 JSON_TYPES = {str: 'str', bool: 'bool', int: 'int', float: 'float', type(None): 'null', list: 'list', dict: 'dict'}
@@ -62,9 +66,23 @@ def check(node, value, path, problems, stats):
 
 
 def main(argv=None):
-    lib = Path((argv or sys.argv[1:])[0]).resolve()
-    facts = run_setup(lib)
-    root = analyze(lib)['root']
+    ap = argparse.ArgumentParser(prog='python -m factsdoc.validate', description=__doc__.split('\n\n')[0])
+    ap.add_argument('lib', nargs='?', help='extracted ansible-core lib/ directory: run setup locally and compare')
+    ap.add_argument('--windows', metavar='SETUP_PS1', help='ansible.windows setup.ps1 to compare --facts against')
+    ap.add_argument('--facts', metavar='JSON', help='setup output captured on a Windows host')
+    args = ap.parse_args(argv)
+    if args.windows:
+        if not args.facts:
+            ap.error('--windows needs --facts')
+        root = windows.analyze(Path(args.windows))['root']
+        output = json.loads(Path(args.facts).read_text(encoding='utf-8-sig'))
+        facts = output.get('ansible_facts', output)
+    elif args.lib:
+        lib = Path(args.lib).resolve()
+        facts = run_setup(lib)
+        root = analyze(lib)['root']
+    else:
+        ap.error('give an ansible-core lib/ directory, or --windows with --facts')
     problems, stats = [], {'checked': 0}
     top = {}
     for k, v in facts.items():

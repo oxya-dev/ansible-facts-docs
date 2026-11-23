@@ -48,7 +48,16 @@ any web server. The selected version and the search are kept in the URL hash
 3. `factsdoc/describe.py` attaches descriptions. They come from `descriptions.toml` when
    an entry exists; otherwise they are generated from the key name and marked `auto` on the
    site. Comments next to the assigning lines are shown as "source comment".
-4. `factsdoc/site.py` writes `index.html`, `assets/` and one `data/<X.Y>.js` per version.
+4. `factsdoc/windows.py` does the same for Windows hosts. It reads `plugins/modules/setup.ps1`
+   from the `ansible.windows` collection. For each ansible-core version it uses the latest
+   collection release whose `requires_ansible` accepts that version, downloaded from Galaxy.
+   It tokenizes the PowerShell and follows the `$ansibleFacts.<name> = …` assignments
+   through local variables, hashtables, `@()` arrays, pipelines, `if`/`switch` expressions
+   and the C# helper classes embedded in the module. Sources are registry keys, WMI
+   classes, .NET APIs and environment variables. The Windows facts are merged into the same
+   tree with the platform `Windows`. Where a key means something different on Windows,
+   the `[windows]` table of `descriptions.toml` adds a Windows note.
+5. `factsdoc/site.py` writes `index.html`, `assets/` and one `data/<X.Y>.js` per version.
 
 To add or fix a description, edit `descriptions.toml` (the path syntax is described at
 the top of the file) and rebuild.
@@ -62,3 +71,12 @@ python3 -m factsdoc.validate .cache/src/2.22.0/lib
 This runs the real `setup` module from the extracted source on the current machine. It
 then reports every returned key or value type that the generated documentation does not
 cover.
+
+For Windows, capture the module output on a Windows host and compare it with the analysis:
+
+```sh
+python3 -m factsdoc.validate --windows .cache/windows/3.9.2/setup.ps1 --facts facts.json
+```
+
+`facts.json` is the JSON printed by `ansible.windows.setup`, for example the output of
+`ansible <host> -m ansible.windows.setup` or of the module run directly with `Ansible.Basic`.

@@ -1,4 +1,4 @@
-"""Download and extract ansible-core source distributions from PyPI."""
+"""Download and extract ansible-core (PyPI) and ansible.windows (Galaxy) sources."""
 from __future__ import annotations
 
 import hashlib
@@ -7,9 +7,12 @@ import re
 import shutil
 import tarfile
 import urllib.request
+import urllib.parse
 from pathlib import Path
 
 PYPI = 'https://pypi.org/pypi/ansible-core'
+GALAXY = 'https://galaxy.ansible.com'
+WINDOWS_VERSIONS = GALAXY + '/api/v3/plugin/ansible/content/published/collections/index/ansible/windows/versions/'
 _FINAL = re.compile(r'(\d+)\.(\d+)\.(\d+)')
 
 
@@ -54,15 +57,7 @@ def ensure_source(version: str, cache: Path) -> Path:
     if not tarball.exists():
         meta = _get_json(f'{PYPI}/{version}/json')
         sdist = next(u for u in meta['urls'] if u['packagetype'] == 'sdist')
-        tarball.parent.mkdir(parents=True, exist_ok=True)
-        tmp = tarball.with_suffix('.part')
-        with urllib.request.urlopen(sdist['url'], timeout=300) as r, open(tmp, 'wb') as f:
-            shutil.copyfileobj(r, f)
-        digest = hashlib.sha256(tmp.read_bytes()).hexdigest()
-        if digest != sdist['digests']['sha256']:
-            tmp.unlink()
-            raise SystemExit(f'sha256 mismatch for {sdist["url"]}')
-        tmp.rename(tarball)
+        _download(sdist['url'], sdist['digests']['sha256'], tarball)
     dest = cache / 'src' / version
     if dest.exists():
         shutil.rmtree(dest)
@@ -77,3 +72,72 @@ def ensure_source(version: str, cache: Path) -> Path:
                 members.append(m)
         tf.extractall(dest, members=members, filter='data')
     return lib
+
+
+def _download(url, sha256, dest: Path):
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + '.part')
+    with urllib.request.urlopen(url, timeout=300) as r, open(tmp, 'wb') as f:
+        shutil.copyfileobj(r, f)
+    if hashlib.sha256(tmp.read_bytes()).hexdigest() != sha256:
+        tmp.unlink()
+        raise SystemExit(f'sha256 mismatch for {url}')
+    tmp.rename(dest)
+
+
+def windows_releases(cache: Path, offline=False):
+    """``[{'version', 'requires_ansible'}]`` of the ansible.windows collection on Galaxy."""
+    index = cache / 'windows' / 'versions.json'
+    if offline:
+        if not index.exists():
+            raise SystemExit('no cached ansible.windows release list; run once without --offline')
+        return json.loads(index.read_text())
+    out, url = [], WINDOWS_VERSIONS + '?limit=100'
+    while url:
+        page = _get_json(url)
+        out += [{'version': v['version'], 'requires_ansible': v.get('requires_ansible') or ''}
+                for v in page['data'] if _FINAL.fullmatch(v['version'])]
+        nxt = (page.get('links') or {}).get('next')
+        url = urllib.parse.urljoin(GALAXY, nxt) if nxt else None
+    index.parent.mkdir(parents=True, exist_ok=True)
+    index.write_text(json.dumps(out, indent=1))
+    return out
+
+
+def _satisfies(version, spec):
+    """``requires_ansible`` check, e.g. ``'2.18.20'`` against ``'>=2.16.0,<2.20'``."""
+    v = _key(version)
+    for clause in filter(None, (c.strip() for c in spec.split(','))):
+        m = re.fullmatch(r'(>=|<=|==|!=|>|<|~=)?\s*([\d.]+)(?:\.\*)?', clause)
+        if not m:
+            continue
+        op, bound = m.group(1) or '==', tuple(int(x) for x in m.group(2).split('.'))
+        cur = v[:len(bound)] if op in ('==', '!=') else v
+        ok = {'>=': cur >= bound, '<=': cur <= bound, '>': cur > bound, '<': cur < bound,
+              '==': cur == bound, '!=': cur != bound,
+              '~=': cur >= bound and cur[:len(bound) - 1] == bound[:-1]}[op]
+        if not ok:
+            return False
+    return True
+
+
+def windows_for(core_version, releases):
+    """Latest ansible.windows release whose ``requires_ansible`` accepts this ansible-core."""
+    ok = [r['version'] for r in releases if _satisfies(core_version, r['requires_ansible'])]
+    return max(ok, key=_key) if ok else None
+
+
+def ensure_windows(version: str, cache: Path) -> Path:
+    """Return ``<cache>/windows/<version>/setup.ps1``, downloading the collection if needed."""
+    ps1 = cache / 'windows' / version / 'setup.ps1'
+    if ps1.exists():
+        return ps1
+    tarball = cache / 'windows' / f'ansible-windows-{version}.tar.gz'
+    if not tarball.exists():
+        meta = _get_json(f'{WINDOWS_VERSIONS}{version}/')
+        _download(meta['download_url'], meta['artifact']['sha256'], tarball)
+    with tarfile.open(tarball) as tf:
+        name = next(n for n in tf.getnames() if n.endswith('plugins/modules/setup.ps1'))
+        ps1.parent.mkdir(parents=True, exist_ok=True)
+        ps1.write_bytes(tf.extractfile(name).read())
+    return ps1

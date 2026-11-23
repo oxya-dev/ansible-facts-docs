@@ -47,6 +47,11 @@
   --o-cmd-bg: #f5f3ff;  --o-cmd-fg: #6d28d9;
   --o-python-bg: #eff6ff; --o-python-fg: #1d4ed8;
   --o-env-bg: #ecfdf5; --o-env-fg: #047857;
+  --o-registry-bg: #fff1f2; --o-registry-fg: #be123c;
+  --o-wmi-bg: #f0fdfa; --o-wmi-fg: #0f766e;
+  --o-dotnet-bg: #eef2ff; --o-dotnet-fg: #4338ca;
+  --o-native-bg: #f1f5f9; --o-native-fg: #334155;
+  --win-bg: #e0f2fe; --win-fg: #0369a1;
   color-scheme: light;
 }
 
@@ -89,6 +94,11 @@
     --o-cmd-bg: #2a1a4a;  --o-cmd-fg: #c4b5fd;
     --o-python-bg: #172554; --o-python-fg: #93c5fd;
     --o-env-bg: #052e1f; --o-env-fg: #6ee7b7;
+    --o-registry-bg: #4c0519; --o-registry-fg: #fda4af;
+    --o-wmi-bg: #042f2e; --o-wmi-fg: #5eead4;
+    --o-dotnet-bg: #1e1b4b; --o-dotnet-fg: #a5b4fc;
+    --o-native-bg: #1e293b; --o-native-fg: #cbd5e1;
+    --win-bg: #082f49; --win-fg: #7dd3fc;
     color-scheme: dark;
   }
 }
@@ -400,6 +410,11 @@ h2.group {
 .chip.subset { background: var(--subset-bg); color: var(--subset-fg); font-family: var(--mono); font-size: 11.5px; }
 .chip.subset.min { background: var(--min-bg); color: var(--min-fg); }
 .chip.plat.any { background: var(--all-bg); color: var(--all-fg); }
+.chip.plat.win { background: var(--win-bg); color: var(--win-fg); }
+.desc-win { display: flex; gap: 8px; align-items: baseline; }
+.desc-win .chip { flex: none; height: 18px; font-size: 11px; }
+.prop-plats { display: inline-flex; gap: 4px; }
+.prop-plats .chip { height: 18px; font-size: 11px; padding: 0 6px; }
 
 .meta {
   display: grid;
@@ -457,6 +472,12 @@ h2.group {
 .origin-cmd { background: var(--o-cmd-bg); color: var(--o-cmd-fg); }
 .origin-python { background: var(--o-python-bg); color: var(--o-python-fg); }
 .origin-env { background: var(--o-env-bg); color: var(--o-env-fg); }
+.origin-registry { background: var(--o-registry-bg); color: var(--o-registry-fg); }
+.origin-wmi { background: var(--o-wmi-bg); color: var(--o-wmi-fg); }
+.origin-dotnet { background: var(--o-dotnet-bg); color: var(--o-dotnet-fg); }
+.origin-native { background: var(--o-native-bg); color: var(--o-native-fg); }
+.origin-pwsh { background: var(--o-python-bg); color: var(--o-python-fg); }
+.origin-provider { background: var(--o-file-bg); color: var(--o-file-fg); }
 .codelinks { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 8px; }
 .codelink { font: 12px var(--mono); }
 .codelink::before { content: "↗ "; opacity: .6; }
